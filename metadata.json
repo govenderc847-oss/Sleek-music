@@ -1,0 +1,6 @@
+{
+  "name": "Sleek Music",
+  "description": "A high-fidelity minimalist ambient music player utilizing a beautiful modern Sleek Interface design style.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
