@@ -491,7 +491,11 @@ fun MainScreen(
                             isScanning = isScanning,
                             statusText = storageStatus,
                             onTriggerScan = { triggerStorageScan() },
-                            onResetOnboarding = { viewModel.resetOnboarding() }
+                            onResetOnboarding = { viewModel.resetOnboarding() },
+                            onImportFolder = { uri -> viewModel.importTracksFromFolderUri(context, uri) },
+                            onImportFiles = { uris -> viewModel.importTracksFromUris(context, uris) },
+                            onClearImported = { viewModel.clearCustomImportedTracks(context) },
+                            importedTracksCount = viewModel.loadCustomTracksFromPrefs(context).size
                         )
                     }
                 }
@@ -1603,133 +1607,152 @@ fun SleekOnboardingWizard(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         onDismissRequest = {}
     ) {
-        Surface(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-            color = MaterialTheme.colorScheme.background
+                .background(Color.Black.copy(alpha = 0.5f))
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+                    .widthIn(max = 380.dp)
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    repeat(totalPages) { pageIndex ->
-                        val active = pageIndex == currentPage
-                        Box(
-                            modifier = Modifier
-                                .height(6.dp)
-                                .width(if (active) 24.dp else 8.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (active) MaterialTheme.colorScheme.primary 
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                                )
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when (currentPage) {
-                        0 -> OnboardingPageContent(
-                            icon = Icons.Default.MusicNote,
-                            title = "Sleek Ambient Player",
-                            description = "Welcome to your high-fidelity, distraction-free sanctuary for focus, relaxation, and music tracks."
-                        )
-                        1 -> OnboardingPageContent(
-                            icon = Icons.Default.Gesture,
-                            title = "Gestures Arena",
-                            description = "Our Now Playing screen is fully interactive:\n\n• Swipe ◄ or ► on Artwork to Skip Tracks\n• Tap center to Play / Pause\n• Drag ▲ or ▼ to smoothly change Volume levels!"
-                        )
-                        2 -> OnboardingPageContent(
-                            icon = Icons.Default.Equalizer,
-                            title = "Pro DSP Tuning Deck",
-                            description = "Sculpt your frequencies with our professional 5-Band Equalizer, real-time Virtualizer stage depth, dynamic Sub-Bass core pulse, and sound reverberation controls."
-                        )
-                        3 -> Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(16.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = "Storage",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(80.dp)
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Text(
-                                text = "Unleash Local Mediums",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Scan music folders from your internal directories, high-speed SD Cards, or external OTG USB storage hardware safely and reliably.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(
-                                onClick = {
-                                    onActivateScan()
-                                    onComplete()
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().height(56.dp)
-                            ) {
-                                Icon(Icons.Default.SettingsSuggest, "Scan")
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Activate Media Storage Scan", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    if (currentPage < totalPages - 1) {
-                        TextButton(onClick = onComplete) {
-                            Text("Skip", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Page indicator
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        repeat(totalPages) { pageIndex ->
+                            val active = pageIndex == currentPage
+                            Box(
+                                modifier = Modifier
+                                    .height(6.dp)
+                                    .width(if (active) 20.dp else 8.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (active) MaterialTheme.colorScheme.primary 
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                    )
+                            )
                         }
-                    } else {
-                        Spacer(modifier = Modifier.width(48.dp))
                     }
 
-                    if (currentPage < totalPages - 1) {
-                        Button(
-                            onClick = { currentPage++ },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Continue")
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.AutoMirrored.Default.ArrowForward, "Next", modifier = Modifier.size(16.dp))
+                    // Page main content box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when (currentPage) {
+                            0 -> OnboardingPageContent(
+                                icon = Icons.Default.MusicNote,
+                                title = "Sleek Ambient Player",
+                                description = "Welcome to your high-fidelity, distraction-free sanctuary for focus, relaxation, and music tracks."
+                            )
+                            1 -> OnboardingPageContent(
+                                icon = Icons.Default.Timelapse,
+                                title = "In-App Sleep Timers",
+                                description = "Listen peacefully into the night. Configure our smart Sleep Timer to gradually fade down output and stop playback automatically when you fall asleep."
+                            )
+                            2 -> OnboardingPageContent(
+                                icon = Icons.Default.Equalizer,
+                                title = "Pro DSP Tuning Deck",
+                                description = "Sculpt your frequencies with our professional 5-Band Equalizer, real-time Virtualizer stage depth, dynamic Sub-Bass core pulse, and sound reverberation controls."
+                            )
+                            3 -> Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(100.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FolderOpen,
+                                        contentDescription = "Storage",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(54.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Unleash Local Mediums",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Scan music folders from your internal directories, high-speed SD Cards, or external OTG USB storage hardware safely and reliably.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        onActivateScan()
+                                        onComplete()
+                                    },
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.SettingsSuggest, "Scan")
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Activate Media Storage Scan", fontWeight = FontWeight.Bold)
+                                }
+                             }
                         }
-                    } else {
-                        TextButton(onClick = onComplete) {
-                            Text("Finish Setup", fontWeight = FontWeight.Bold)
+                    }
+
+                    // Navigation footer row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (currentPage < totalPages - 1) {
+                            TextButton(onClick = onComplete) {
+                                Text("Skip", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(48.dp))
+                        }
+
+                        if (currentPage < totalPages - 1) {
+                            Button(
+                                onClick = { currentPage++ },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Continue")
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.AutoMirrored.Default.ArrowForward, "Next", modifier = Modifier.size(14.dp))
+                            }
+                        } else {
+                            TextButton(onClick = onComplete) {
+                                Text("Finish Setup", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -1747,11 +1770,11 @@ fun OnboardingPageContent(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = Modifier.padding(24.dp)
+        modifier = Modifier.padding(vertical = 12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(140.dp)
+                .size(100.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
@@ -1760,24 +1783,25 @@ fun OnboardingPageContent(
                 imageVector = icon,
                 contentDescription = title,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(68.dp)
+                modifier = Modifier.size(54.dp)
             )
         }
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
             text = description,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 8.dp),
-            lineHeight = 24.sp
+            modifier = Modifier.padding(horizontal = 4.dp),
+            lineHeight = 22.sp
         )
     }
 }
@@ -1787,60 +1811,80 @@ fun DeviceStoragePage(
     isScanning: Boolean,
     statusText: String,
     onTriggerScan: () -> Unit,
-    onResetOnboarding: () -> Unit
+    onResetOnboarding: () -> Unit,
+    onImportFolder: (android.net.Uri) -> Unit,
+    onImportFiles: (List<android.net.Uri>) -> Unit,
+    onClearImported: () -> Unit,
+    importedTracksCount: Int
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val folderLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            onImportFolder(uri)
+        }
+    }
+
+    val fileLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<android.net.Uri>? ->
+        if (!uris.isNullOrEmpty()) {
+            onImportFiles(uris)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(20.dp)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "HARDWARE STORAGE CHANNELS",
+            text = "HARDWARE STORAGE SCANNERS",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 1.5.sp,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 4.dp)
         )
 
+        // System scanner card
         Card(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Storage,
-                        contentDescription = "Storage",
+                        imageVector = Icons.Default.Cached,
+                        contentDescription = "System scan",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Device Music Scanner",
+                        text = "Auto System Scanner",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Allows indexing audio and custom files from physical and virtual partitions, including local memory directories, physical SD Cards, and OTG USB disk accessories.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                     text = "Triggers a full underlying scan of your device's Media Library to index all local tracks automatically.",
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
-                Spacer(modifier = Modifier.height(20.dp))
-                
                 if (isScanning) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth().clip(CircleShape),
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = statusText,
                             style = MaterialTheme.typography.bodySmall,
@@ -1851,15 +1895,14 @@ fun DeviceStoragePage(
                 } else {
                     Button(
                         onClick = onTriggerScan,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().height(52.dp)
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         Icon(Icons.Default.SettingsSuggest, "Scan")
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Search Storage, SD Card, & USB OTG", fontWeight = FontWeight.Bold)
+                        Text("Instant System Scan", fontWeight = FontWeight.Bold)
                     }
                     if (statusText != "Storage scanner idle") {
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = statusText,
                             style = MaterialTheme.typography.bodySmall,
@@ -1872,36 +1915,136 @@ fun DeviceStoragePage(
         }
 
         Text(
-            text = "HARDWARE HUB DIRECTORIES",
+            text = "ADVANCED FILE & HARDWARE DRIVES",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 1.5.sp,
-            modifier = Modifier.padding(vertical = 12.dp)
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+        )
+
+        // Custom Pickers Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Storage,
+                        contentDescription = "SAF Pickers",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Physical Drive Integrator",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Text(
+                     text = "Select custom musical resources directly from connected hardware storage locations, including expandable external SD Cards and USB OTG Flash Drives.",
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (importedTracksCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.MusicNote, "Imported", tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Currently loaded: $importedTracksCount virtual tracks",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { folderLauncher.launch(null) },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.Folder, "Folder")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Pick Folder", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = { fileLauncher.launch(arrayOf("audio/*")) },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Icon(Icons.Default.Audiotrack, "Files")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Pick Songs", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                if (importedTracksCount > 0) {
+                    OutlinedButton(
+                        onClick = onClearImported,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, "Clear")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Clear Imported Tracks", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "HARDWARE DETECTED CHANNELS",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 1.5.sp,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
         )
 
         DirectoryNodeCard(
-            title = "External OTG USB Drive",
-            path = "/mnt/media_rw/USB_DRIVE_A/Music/",
+            title = "External USB Drive (OTG)",
+            path = "Accessible via 'Pick Folder' → USB Hub",
             icon = Icons.Default.Usb,
             connected = true
         )
 
         DirectoryNodeCard(
-            title = "MicroSD Expansion Card",
-            path = "/storage/sdcard1/Music/",
+            title = "MicroSD Expansion Storage",
+            path = "Accessible via 'Pick Folder' → SD Card",
             icon = Icons.Default.SdCard,
             connected = true
         )
 
         DirectoryNodeCard(
-            title = "Internal User Storage",
-            path = "/storage/emulated/0/Music/",
+            title = "Internal Device Directories",
+            path = "Accessible via 'Pick Songs' or 'Pick Folder'",
             icon = Icons.Default.Folder,
             connected = true
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedButton(
             onClick = onResetOnboarding,

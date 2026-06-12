@@ -83,6 +83,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
+  implementation(libs.androidx.documentfile)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -119,3 +120,26 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
+
+afterEvaluate {
+  val rootDirPath = rootDir.absolutePath
+  val projectDirPath = projectDir.absolutePath
+  val buildDirPath = layout.buildDirectory.get().asFile.absolutePath
+
+  tasks.findByName("assembleDebug")?.doLast {
+    val src = File(buildDirPath, "outputs/apk/debug/app-debug.apk")
+    if (src.exists()) {
+      val dest1 = File(rootDirPath, "app-debug.apk")
+      val dest2 = File(projectDirPath, "app-debug.apk")
+      src.copyTo(dest1, overwrite = true)
+      src.copyTo(dest2, overwrite = true)
+      println("Successfully copied APK to root and app directories!")
+    } else {
+      println("Source APK not found at: ${src.absolutePath}")
+    }
+  }
+}
+
+
+
+

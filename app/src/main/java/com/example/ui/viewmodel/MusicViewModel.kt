@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import android.net.Uri
 import com.example.data.FavoriteTrack
 import com.example.data.MusicDatabase
 import com.example.data.MusicRepository
@@ -19,6 +20,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import androidx.documentfile.provider.DocumentFile
 
 data class UiTrack(
     val track: Track,
@@ -40,6 +46,8 @@ class MusicViewModel(
 ) : AndroidViewModel(application) {
 
     private val TAG = "MusicViewModel"
+
+    private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
 
     // Storage scanning status flows
     private val _isScanning = MutableStateFlow(false)
@@ -159,7 +167,9 @@ class MusicViewModel(
     init {
         loadStaticTracks()
         checkOnboardingStatus()
-        scanDeviceStorage()
+        if (!_isOnboardingActive.value) {
+            scanDeviceStorage()
+        }
     }
 
     private fun checkOnboardingStatus() {
@@ -181,130 +191,8 @@ class MusicViewModel(
     }
 
     private fun loadStaticTracks() {
-        val staticList = listOf(
-            Track(
-                id = "1",
-                title = "Ethereal Echoes",
-                artist = "Deep Space Project",
-                album = "Cosmic Winds",
-                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                durationMs = 372000L,
-                durationString = "6:12",
-                genre = "Synthwave",
-                colorStart = 0xFF8A2387,
-                colorEnd = 0xFFE94057,
-                lyrics = listOf(
-                    LyricLine(2000, "[Instrumental Synthwave Intro - Feel the Wave]"),
-                    LyricLine(8000, "Flickering lights in the neon breeze..."),
-                    LyricLine(16000, "Searching for stars that we'll never reach."),
-                    LyricLine(24000, "We ride through the shadows of silver streets,"),
-                    LyricLine(32000, "Under the glow where the cosmic heart beats."),
-                    LyricLine(42000, "[Deep vintage keyboard interlude]"),
-                    LyricLine(60000, "Caught in the resonance of yesterday..."),
-                    LyricLine(68000, "Time is a wave that just washes away."),
-                    LyricLine(76000, "In the drift of the digital rain,"),
-                    LyricLine(84000, "We find our way, release the pain."),
-                    LyricLine(95000, "[Synthesizer Solo - Pure Analogue Frequency Pulse]"),
-                    LyricLine(120000, "Rushing through wires and optical lines,"),
-                    LyricLine(128000, "Echoes of memory, suspended in time."),
-                    LyricLine(140000, "Endless horizons, the future is now..."),
-                    LyricLine(150000, "[Sustained electronic ambient fade-out]")
-                )
-            ),
-            Track(
-                id = "2",
-                title = "Chill Horizons",
-                artist = "Lofi Nostalgia",
-                album = "Sunset Coffee",
-                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-                durationMs = 425000L,
-                durationString = "7:05",
-                genre = "Ambient",
-                colorStart = 0xFF12C2E9,
-                colorEnd = 0xFFF64F59,
-                lyrics = listOf(
-                    LyricLine(1000, "[Soft Lofi Rain and Record Scratch]"),
-                    LyricLine(6000, "Pouring coffee, watching morning fall..."),
-                    LyricLine(15000, "Soft dust dancing on the bedroom wall."),
-                    LyricLine(23000, "No rushes today, let the thoughts float clean,"),
-                    LyricLine(31000, "Living a slow, beautiful summer dream."),
-                    LyricLine(40000, "[Instrumental Saxophone Bridge]"),
-                    LyricLine(62000, "Golden hours creeping down the hall,"),
-                    LyricLine(71000, "Breathe in the stillness, let go of it all."),
-                    LyricLine(80000, "No clocks are ticking, nothing more to say,"),
-                    LyricLine(89000, "Just lofi melodies carrying the day.")
-                )
-            ),
-            Track(
-                id = "3",
-                title = "Neon Dreams",
-                artist = "Midnight Arcade",
-                album = "Retro City",
-                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-                durationMs = 344000L,
-                durationString = "5:44",
-                genre = "Electronic",
-                colorStart = 0xFF200122,
-                colorEnd = 0xFF6F0000,
-                lyrics = listOf(
-                    LyricLine(3000, "[Arpeggiated Retro Intro]"),
-                    LyricLine(10000, "Cruising the neon shoreline at night,"),
-                    LyricLine(19000, "City reflected in dark tinted glass lines."),
-                    LyricLine(28000, "Fast speed, high state, electric mind is free,"),
-                    LyricLine(37000, "We are the riders of this virtual sea."),
-                    LyricLine(48000, "[Guitar Wave Outbreak]"),
-                    LyricLine(68000, "Lost in the chrome of the grid we designed,"),
-                    LyricLine(77000, "Parallel souls, beautifully aligned."),
-                    LyricLine(86000, "Keep the rhythm flowing in your mind.")
-                )
-            ),
-            Track(
-                id = "4",
-                title = "Midnight Breeze",
-                artist = "Urban Jazz Quintet",
-                album = "Blue Note Sessions",
-                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-                durationMs = 362000L,
-                durationString = "6:02",
-                genre = "Jazz",
-                colorStart = 0xFF00C9FF,
-                colorEnd = 0xFF92FE9D,
-                lyrics = listOf(
-                    LyricLine(2000, "[Soft acoustic drum rimshots & brushes]"),
-                    LyricLine(9000, "Dimmed cafe lights, cozy winter breeze..."),
-                    LyricLine(18000, "Smoke in the corner, saxophone tells all."),
-                    LyricLine(27000, "Late night reflections, warm jazz chords in key,"),
-                    LyricLine(36000, "Perfect acoustics, drift away with me."),
-                    LyricLine(46000, "[Piano Improvisation Block]"),
-                    LyricLine(72000, "Bassline walks slowly, tracing every step,"),
-                    LyricLine(81000, "A midnight serenade, a quiet vibe kept.")
-                )
-            ),
-            Track(
-                id = "5",
-                title = "Stardust Voyage",
-                artist = "Nebula Explorer",
-                album = "Zero Gravity",
-                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
-                durationMs = 318000L,
-                durationString = "5:18",
-                genre = "Chillout",
-                colorStart = 0xFFFC00FF,
-                colorEnd = 0xFF00FFFC,
-                lyrics = listOf(
-                    LyricLine(3000, "[Weightless synth pad wash]"),
-                    LyricLine(11000, "Floating above, where the planet turns blue..."),
-                    LyricLine(20000, "Looking down at shadows, feeling entirely new."),
-                    LyricLine(29000, "Out in the silence, gravity let go,"),
-                    LyricLine(38000, "Riding on stardust, in a cosmic flow."),
-                    LyricLine(48000, "[Cosmic Space Effects / Echoes]"),
-                    LyricLine(68000, "Infinite silence, beautiful and deep,"),
-                    LyricLine(77000, "Woven into dreams, that the galaxy will keep.")
-                )
-            )
-        )
-        _rawTracks.value = staticList
-        activeQueue = staticList
+        _rawTracks.value = emptyList()
+        activeQueue = emptyList()
     }
 
     // --- Search & Filters Actions ---
@@ -510,128 +398,285 @@ class MusicViewModel(
     }
 
     // --- Device Scanning & OTG/SD Card Integration ---
-    fun scanDeviceStorage() {
-        viewModelScope.launch {
-            _isScanning.value = true
-            _storageStatus.value = "Initiating core file scanners..."
-            delay(1000)
+    private fun saveCustomTracksToPrefs(context: Context, tracksList: List<Track>) {
+        try {
+            val sharedPrefs = context.getSharedPreferences("sleek_music_prefs", Context.MODE_PRIVATE)
+            val json = moshi.adapter<List<Track>>(Types.newParameterizedType(List::class.java, Track::class.java)).toJson(tracksList)
+            sharedPrefs.edit().putString("custom_imported_tracks", json).apply()
+        } catch (e: Exception) {
+            Log.e("MusicViewModel", "Error saving imported tracks", e)
+        }
+    }
 
-            val scannedTracks = mutableListOf<Track>()
-            val resolver = getApplication<Application>().contentResolver
-            val uri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            val projection = arrayOf(
-                android.provider.MediaStore.Audio.Media._ID,
-                android.provider.MediaStore.Audio.Media.TITLE,
-                android.provider.MediaStore.Audio.Media.ARTIST,
-                android.provider.MediaStore.Audio.Media.ALBUM,
-                android.provider.MediaStore.Audio.Media.DURATION,
-                android.provider.MediaStore.Audio.Media.DATA
-            )
+    fun loadCustomTracksFromPrefs(context: Context): List<Track> {
+        try {
+            val sharedPrefs = context.getSharedPreferences("sleek_music_prefs", Context.MODE_PRIVATE)
+            val json = sharedPrefs.getString("custom_imported_tracks", null) ?: return emptyList()
+            return moshi.adapter<List<Track>>(Types.newParameterizedType(List::class.java, Track::class.java)).fromJson(json) ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("MusicViewModel", "Error loading imported tracks", e)
+            return emptyList()
+        }
+    }
 
-            val selection = "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0"
+    fun refreshTrackLibrary(context: Context) {
+        val storageTracks = mutableListOf<Track>()
+        
+        // 1. Get standard MediaStore scanned tracks
+        val mediaStoreTracks = queryMediaStoreTracks(context)
+        storageTracks.addAll(mediaStoreTracks)
 
-            try {
-                resolver.query(uri, projection, selection, null, null)?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
-                    val titleCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
-                    val artistCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
-                    val albumCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM)
-                    val durationCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DURATION)
-                    val dataCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+        // 2. Get custom SAF-imported files
+        val customTracks = loadCustomTracksFromPrefs(context)
+        storageTracks.addAll(customTracks.filter { custom -> mediaStoreTracks.none { it.streamUrl == custom.streamUrl } })
 
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(idCol)
-                        val title = cursor.getString(titleCol) ?: "Unknown Track"
-                        val artist = cursor.getString(artistCol) ?: "Unknown Artist"
-                        val album = cursor.getString(albumCol) ?: "Unknown Album"
-                        val durationMs = cursor.getLong(durationCol)
-                        val dataPath = cursor.getString(dataCol) ?: ""
+        // 3. Clear existing mediaStore scanned tracks in _rawTracks, then re-merge
+        val baseTracks = _rawTracks.value.filter { 
+            !it.id.contains("scanned_") && !it.id.contains("storage_") && !it.id.contains("saf_")
+        }.toMutableList()
 
-                        val contentUri = android.content.ContentUris.withAppendedId(uri, id).toString()
-                        
-                        val mins = (durationMs / 1000) / 60
-                        val secs = (durationMs / 1000) % 60
-                        val durationStr = String.format("%d:%02d", mins, secs)
+        baseTracks.addAll(storageTracks)
+        _rawTracks.value = baseTracks
+        activeQueue = baseTracks
+    }
 
-                        val hash = title.hashCode()
-                        val colorStart = 0xFF000000L or (hash.toLong() and 0x00FFFFFF)
-                        val colorEnd = 0xFF000000L or ((hash xor 0xABCDEF).toLong() and 0x00FFFFFF)
+    private fun queryMediaStoreTracks(context: Context): List<Track> {
+        val scannedTracks = mutableListOf<Track>()
+        val resolver = context.contentResolver
+        val uri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            android.provider.MediaStore.Audio.Media._ID,
+            android.provider.MediaStore.Audio.Media.TITLE,
+            android.provider.MediaStore.Audio.Media.ARTIST,
+            android.provider.MediaStore.Audio.Media.ALBUM,
+            android.provider.MediaStore.Audio.Media.DURATION,
+            android.provider.MediaStore.Audio.Media.DATA,
+            android.provider.MediaStore.Audio.Media.ALBUM_ID
+        )
 
-                        scannedTracks.add(
-                            Track(
-                                id = "scanned_$id",
-                                title = title,
-                                artist = artist,
-                                album = album,
-                                streamUrl = contentUri,
-                                durationMs = durationMs,
-                                durationString = durationStr,
-                                genre = "Local Storage",
-                                colorStart = colorStart,
-                                colorEnd = colorEnd,
-                                lyrics = listOf(
-                                    LyricLine(1000, "[Local file: $title]"),
-                                    LyricLine(6000, "Artist: $artist"),
-                                    LyricLine(12000, "Album: $album"),
-                                    LyricLine(18000, "Path: $dataPath")
-                                )
+        val selection = "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+        try {
+            resolver.query(uri, projection, selection, null, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
+                val titleCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
+                val albumCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM)
+                val durationCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DURATION)
+                val dataCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+                val albumIdCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM_ID)
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val title = cursor.getString(titleCol) ?: "Unknown Track"
+                    val artist = cursor.getString(artistCol) ?: "Unknown Artist"
+                    val album = cursor.getString(albumCol) ?: "Unknown Album"
+                    val durationMs = cursor.getLong(durationCol)
+                    val dataPath = cursor.getString(dataCol) ?: ""
+                    val albumId = cursor.getLong(albumIdCol)
+
+                    val contentUri = android.content.ContentUris.withAppendedId(uri, id).toString()
+                    val coverUriString = android.content.ContentUris.withAppendedId(
+                        android.net.Uri.parse("content://media/external/audio/albumart"),
+                        albumId
+                    ).toString()
+
+                    val mins = (durationMs / 1000) / 60
+                    val secs = (durationMs / 1000) % 60
+                    val durationStr = String.format("%d:%02d", mins, secs)
+
+                    val hash = title.hashCode()
+                    val colorStart = 0xFF000000L or (hash.toLong() and 0x00FFFFFF)
+                    val colorEnd = 0xFF000000L or ((hash xor 0xABCDEF).toLong() and 0x00FFFFFF)
+
+                    scannedTracks.add(
+                        Track(
+                            id = "scanned_$id",
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            streamUrl = contentUri,
+                            durationMs = durationMs,
+                            durationString = durationStr,
+                            genre = "Local Storage",
+                            colorStart = colorStart,
+                            colorEnd = colorEnd,
+                            coverUri = coverUriString,
+                            lyrics = listOf(
+                                LyricLine(1000, "[Local file: $title]"),
+                                LyricLine(6000, "Artist: $artist"),
+                                LyricLine(12000, "Album: $album"),
+                                LyricLine(18000, "Path: $dataPath")
                             )
                         )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MusicViewModel", "Error reading MediaStore", e)
+        }
+        return scannedTracks
+    }
+
+    fun importTracksFromFolderUri(context: Context, treeUri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Take persistable permission
+                val takeFlags: Int = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(treeUri, takeFlags)
+
+                val docFile = DocumentFile.fromTreeUri(context, treeUri)
+                if (docFile != null && docFile.isDirectory) {
+                    val scannedList = mutableListOf<Track>()
+                    _isScanning.value = true
+                    _storageStatus.value = "Scanning recursive folder tree..."
+
+                    scanDirectoryRecursive(context, docFile, scannedList)
+
+                    _storageStatus.value = "Registering ${scannedList.size} new tracks from storage..."
+                    val currentCustom = loadCustomTracksFromPrefs(context).toMutableList()
+                    val newUnique = scannedList.filter { fileTrack -> currentCustom.none { it.streamUrl == fileTrack.streamUrl } }
+                    currentCustom.addAll(newUnique)
+                    saveCustomTracksToPrefs(context, currentCustom)
+
+                    withContext(Dispatchers.Main) {
+                        refreshTrackLibrary(context)
+                        _storageStatus.value = "Imported ${newUnique.size} tracks from SD Card/USB OTG!"
+                        _isScanning.value = false
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MusicViewModel", "Error reading MediaStore", e)
-                _storageStatus.value = "Error querying local storage. Fallbacks active."
+                Log.e("MusicViewModel", "Failed to import from folder URI", e)
+                withContext(Dispatchers.Main) {
+                    _storageStatus.value = "Failed to import folder tree."
+                    _isScanning.value = false
+                }
             }
+        }
+    }
 
-            _storageStatus.value = "Probing high-speed SD card mount points..."
-            delay(1200)
-            _storageStatus.value = "Authenticating hardware OTG USB drives..."
-            delay(1200)
+    private fun scanDirectoryRecursive(
+        context: Context,
+        directory: DocumentFile,
+        scannedList: MutableList<Track>
+    ) {
+        val files = directory.listFiles()
+        for (file in files) {
+            if (file.isDirectory) {
+                scanDirectoryRecursive(context, file, scannedList)
+            } else if (file.isFile) {
+                val name = file.name ?: continue
+                if (name.endsWith(".mp3", true) || name.endsWith(".wav", true) || name.endsWith(".m4a", true) || name.endsWith(".ogg", true)) {
+                    val track = buildTrackFromDocumentFile(context, file)
+                    if (track != null) {
+                        scannedList.add(track)
+                    }
+                }
+            }
+        }
+    }
 
-            // Merge
-            val mergedList = _rawTracks.value.filterNot { it.id.contains("scanned_") || it.id.contains("storage_") }.toMutableList()
-            
-            // Add virtual and physical local directories files to showcase SD Card & OTG USB functionality
-            scannedTracks.add(
-                Track(
-                    id = "storage_sd",
-                    title = "Ethereal Whispers",
-                    artist = "SD Card Mount /Music",
-                    album = "Transcendence Volume I",
-                    streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
-                    durationMs = 302000L,
-                    durationString = "5:02",
-                    genre = "SD Card",
-                    colorStart = 0xFF11998E,
-                    colorEnd = 0xFF38EF7D,
-                    lyrics = listOf(
-                        LyricLine(1000, "[SD Card File playing from /storage/sdcard1/Music/Ethereal_Whispers.mp3]")
-                    )
-                )
+    private fun buildTrackFromDocumentFile(
+        context: Context,
+        file: DocumentFile
+    ): Track? {
+        var retriever: android.media.MediaMetadataRetriever? = null
+        try {
+            retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(context, file.uri)
+
+            val title = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: file.name?.substringBeforeLast('.') ?: "Unknown Track"
+            val artist = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Unknown Artist"
+            val album = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Unknown Album"
+            val durationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durationMs = durationStr?.toLongOrNull() ?: 180000L
+
+            val mins = (durationMs / 1000) / 60
+            val secs = (durationMs / 1000) % 60
+            val durationString = String.format("%d:%02d", mins, secs)
+
+            val hash = title.hashCode()
+            val colorStart = 0xFF000000L or (hash.toLong() and 0x00FFFFFF)
+            val colorEnd = 0xFF000000L or ((hash xor 0xABCDEF).toLong() and 0x00FFFFFF)
+
+            val trackId = "saf_${System.currentTimeMillis()}_${hash}"
+            return Track(
+                id = trackId,
+                title = title,
+                artist = artist,
+                album = album,
+                streamUrl = file.uri.toString(),
+                durationMs = durationMs,
+                durationString = durationString,
+                genre = "Local Storage",
+                colorStart = colorStart,
+                colorEnd = colorEnd,
+                coverUri = file.uri.toString()
             )
-            scannedTracks.add(
-                Track(
-                    id = "storage_otg",
-                    title = "Chrome Horizon",
-                    artist = "OTG Flash Drive 1",
-                    album = "USB Digital Archival",
-                    streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",
-                    durationMs = 312000L,
-                    durationString = "5:12",
-                    genre = "OTG USB Drive",
-                    colorStart = 0xFFFC4A1A,
-                    colorEnd = 0xFFF7B733,
-                    lyrics = listOf(
-                        LyricLine(1000, "[USB OTG File playing from /mnt/media_rw/USB_DISK_D/Music/Chrome_Horizon.mp3]")
-                    )
-                )
-            )
+        } catch (e: Exception) {
+            Log.e("MusicViewModel", "Error parsing metadata for DocumentFile ${file.name}", e)
+            return null
+        } finally {
+            try { retriever?.release() } catch (ignored: Exception) {}
+        }
+    }
 
-            mergedList.addAll(scannedTracks)
-            _rawTracks.value = mergedList
-            activeQueue = mergedList
-            _storageStatus.value = "Scanned ${scannedTracks.size} files across storage, SD card, and USB OTG."
+    fun importTracksFromUris(context: Context, uris: List<android.net.Uri>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _isScanning.value = true
+                _storageStatus.value = "Importing selected files..."
+                val scannedList = mutableListOf<Track>()
+
+                for (uri in uris) {
+                    try {
+                        val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                    } catch (e: Exception) {
+                        Log.w("MusicViewModel", "Could not take persistable Uri permission", e)
+                    }
+
+                    val doc = DocumentFile.fromSingleUri(context, uri) ?: continue
+                    val track = buildTrackFromDocumentFile(context, doc)
+                    if (track != null) {
+                        scannedList.add(track)
+                    }
+                }
+
+                val currentCustom = loadCustomTracksFromPrefs(context).toMutableList()
+                val newUnique = scannedList.filter { fileTrack -> currentCustom.none { it.streamUrl == fileTrack.streamUrl } }
+                currentCustom.addAll(newUnique)
+                saveCustomTracksToPrefs(context, currentCustom)
+
+                withContext(Dispatchers.Main) {
+                    refreshTrackLibrary(context)
+                    _storageStatus.value = "Imported ${newUnique.size} selected songs!"
+                    _isScanning.value = false
+                }
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Failed to import selected files", e)
+                withContext(Dispatchers.Main) {
+                    _storageStatus.value = "Failed to import selected songs."
+                    _isScanning.value = false
+                }
+            }
+        }
+    }
+
+    fun clearCustomImportedTracks(context: Context) {
+        saveCustomTracksToPrefs(context, emptyList())
+        refreshTrackLibrary(context)
+        _storageStatus.value = "Cleared all imported songs from queue."
+    }
+
+    fun scanDeviceStorage() {
+        viewModelScope.launch {
+            _isScanning.value = true
+            _storageStatus.value = "Scanning local system resources..."
+            delay(500)
+            refreshTrackLibrary(getApplication())
+            _storageStatus.value = "Synced device memory library tracks."
             _isScanning.value = false
         }
     }

@@ -11,7 +11,8 @@ data class Track(
     val genre: String,
     val colorStart: Long,
     val colorEnd: Long,
-    val lyrics: List<LyricLine> = emptyList()
+    val lyrics: List<LyricLine> = emptyList(),
+    val coverUri: String? = null
 )
 
 data class LyricLine(

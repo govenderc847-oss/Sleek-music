@@ -94,6 +94,31 @@ fun TrackArtworkPattern(
     isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
+    var isImageLoadFailed by remember(track.id) { mutableStateOf(track.coverUri.isNullOrEmpty()) }
+
+    if (!isImageLoadFailed && track.coverUri != null) {
+        val painter = coil.compose.rememberAsyncImagePainter(
+            model = track.coverUri,
+            onError = { isImageLoadFailed = true }
+        )
+        val state = painter.state
+        if (state is coil.compose.AsyncImagePainter.State.Error) {
+            isImageLoadFailed = true
+        }
+
+        if (!isImageLoadFailed) {
+            androidx.compose.foundation.Image(
+                painter = painter,
+                contentDescription = track.title,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .aspectRatio(1f)
+            )
+            return
+        }
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "artwork_rotation")
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
