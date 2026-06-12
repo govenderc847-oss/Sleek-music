@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -110,6 +111,7 @@ fun MainScreen(
     val isRepeatOne by viewModel.isRepeatOne.collectAsStateWithLifecycle()
     val userPlaylists by viewModel.userPlaylists.collectAsStateWithLifecycle()
     val equalizerSettings by viewModel.equalizerSettings.collectAsStateWithLifecycle()
+    val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
 
     val currentViewedPlaylist by viewModel.currentViewedPlaylist.collectAsStateWithLifecycle()
     val playlistDetailTracks by viewModel.playlistTracks.collectAsStateWithLifecycle()
@@ -117,6 +119,20 @@ fun MainScreen(
     // 3. UI Screen States
     var activeTab by remember { mutableStateOf("Library") }
     var expandedPlayer by remember { mutableStateOf(false) }
+
+    // On-device audio scanning every time the user enters/resumes the app
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.scanDeviceStorage()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // Onboarding status flows
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
@@ -534,6 +550,8 @@ fun MainScreen(
                     isRepeatOne = isRepeatOne,
                     equalizerSettings = equalizerSettings,
                     userPlaylists = userPlaylists,
+                    sleepTimerRemaining = sleepTimerRemaining,
+                    onSetSleepTimer = { viewModel.startSleepTimer(it) },
                     onCollapse = { expandedPlayer = false },
                     onToggle = { viewModel.togglePlayPause() },
                     onNext = { viewModel.playNext() },
@@ -1046,6 +1064,8 @@ fun ExpandedPlayerView(
     isRepeatOne: Boolean,
     equalizerSettings: EqualizerSettings,
     userPlaylists: List<UserPlaylist>,
+    sleepTimerRemaining: Long?,
+    onSetSleepTimer: (Int) -> Unit,
     onCollapse: () -> Unit,
     onToggle: () -> Unit,
     onNext: () -> Unit,
@@ -1077,6 +1097,76 @@ fun ExpandedPlayerView(
 
     // Expanded view options: "Artwork", "Lyrics", "Equalizer FX"
     var activePanel by remember { mutableStateOf("Artwork") }
+    var showSleepTimerMenu by remember { mutableStateOf(false) }
+
+    // Floating Sleep Timer Dialog Interface
+    if (showSleepTimerMenu) {
+        Dialog(onDismissRequest = { showSleepTimerMenu = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.padding(16.dp).fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = "Sleep Timer",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Sleep Timer Auto-Pause",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (sleepTimerRemaining != null) {
+                            val mins = (sleepTimerRemaining / 1000) / 60
+                            val secs = (sleepTimerRemaining / 1000) % 60
+                            String.format("Active countdown: %d:%02d remaining", mins, secs)
+                        } else {
+                            "Automatically pause your music playback after a preset snooze duration."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    val presets = listOf(
+                        "Cancel Timer" to 0,
+                        "5 Minutes" to 5,
+                        "15 Minutes" to 15,
+                        "30 Minutes" to 30,
+                        "60 Minutes" to 60
+                    )
+                    presets.forEach { (label, minutes) ->
+                        TextButton(
+                            onClick = {
+                                onSetSleepTimer(minutes)
+                                showSleepTimerMenu = false
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            val isCurrent = (minutes == 0 && sleepTimerRemaining == null) || 
+                                            (minutes > 0 && sleepTimerRemaining != null && Math.abs((sleepTimerRemaining / 60000.0) - minutes) < 1.0)
+                            Text(
+                                text = label,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1109,12 +1199,23 @@ fun ExpandedPlayerView(
                 color = Color.White
             )
 
-            IconButton(onClick = onAddToPlaylist) {
-                Icon(
-                    imageVector = Icons.Default.PlaylistAdd,
-                    contentDescription = "Add Track to Playlist",
-                    tint = Color.White
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Sleep Timer Button Action
+                IconButton(onClick = { showSleepTimerMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = "Sleep Timer",
+                        tint = if (sleepTimerRemaining != null) MaterialTheme.colorScheme.primary else Color.White
+                    )
+                }
+
+                IconButton(onClick = onAddToPlaylist) {
+                    Icon(
+                        imageVector = Icons.Default.PlaylistAdd,
+                        contentDescription = "Add Track to Playlist",
+                        tint = Color.White
+                    )
+                }
             }
         }
 
@@ -1133,33 +1234,46 @@ fun ExpandedPlayerView(
                         verticalArrangement = Arrangement.Center,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        GestureInteractivePad(
+                        TrackArtworkPattern(
+                            track = track,
+                            isPlaying = isPlaying,
                             modifier = Modifier
                                 .size(290.dp)
-                                .shadow(24.dp, RoundedCornerShape(24.dp)),
-                            onTap = onToggle,
-                            onSwipeLeft = onNext,
-                            onSwipeRight = onPrev,
-                            onSwipeVertical = { deltaY ->
-                                val direction = if (deltaY < 0) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER
-                                try {
-                                    audioManager.adjustStreamVolume(
-                                        android.media.AudioManager.STREAM_MUSIC,
-                                        direction,
-                                        android.media.AudioManager.FLAG_SHOW_UI
-                                    )
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            },
-                            artworkContent = {
-                                TrackArtworkPattern(
-                                    track = track,
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
+                                .shadow(24.dp, RoundedCornerShape(24.dp))
+                                .clip(RoundedCornerShape(24.dp))
+                                .clickable { onToggle() }
                         )
+
+                        // Sleep countdown live presentation
+                        if (sleepTimerRemaining != null) {
+                            val mins = (sleepTimerRemaining / 1000) / 60
+                            val secs = (sleepTimerRemaining / 1000) % 60
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Timer,
+                                        contentDescription = "Sleep countdown",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = String.format("Auto-pause in %d:%02d", mins, secs),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 "Lyrics" -> {
@@ -2008,106 +2122,4 @@ fun AdvancedEqualizerPage(
     }
 }
 
-@Composable
-fun GestureInteractivePad(
-    modifier: Modifier = Modifier,
-    onTap: () -> Unit,
-    onSwipeLeft: () -> Unit,
-    onSwipeRight: () -> Unit,
-    onSwipeVertical: (Float) -> Unit,
-    artworkContent: @Composable () -> Unit
-) {
-    var accumulatedDragX by remember { mutableStateOf(0f) }
-    var accumulatedDragY by remember { mutableStateOf(0f) }
-    var activeGestureText by remember { mutableStateOf("") }
-    
-    LaunchedEffect(activeGestureText) {
-        if (activeGestureText.isNotEmpty()) {
-            delay(1200)
-            activeGestureText = ""
-        }
-    }
 
-    Box(
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = {
-                        onTap()
-                        activeGestureText = "Play / Pause"
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = {
-                        accumulatedDragX = 0f
-                        accumulatedDragY = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        accumulatedDragX += dragAmount.x
-                        accumulatedDragY += dragAmount.y
-                        
-                        if (Math.abs(accumulatedDragY) > Math.abs(accumulatedDragX) + 12f) {
-                            onSwipeVertical(dragAmount.y)
-                            val volDirection = if (dragAmount.y < 0) "▲ Vol Up" else "▼ Vol Down"
-                            activeGestureText = volDirection
-                        }
-                    },
-                    onDragEnd = {
-                        val swipeThreshold = 100f
-                        if (Math.abs(accumulatedDragX) > Math.abs(accumulatedDragY) && Math.abs(accumulatedDragX) > swipeThreshold) {
-                            if (accumulatedDragX < 0) {
-                                onSwipeLeft()
-                                activeGestureText = "Skip Next ⏭"
-                            } else {
-                                onSwipeRight()
-                                activeGestureText = "Skip Prev ⏮"
-                            }
-                        }
-                    }
-                )
-            }
-    ) {
-        artworkContent()
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                .background(Color.Black.copy(alpha = 0.05f))
-        ) {
-            Text(
-                text = "Gesture Pad",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.4f),
-                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)
-            )
-            
-            if (activeGestureText.isNotEmpty()) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.8f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    Text(
-                        text = activeGestureText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().align(Alignment.Center).padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Icon(Icons.Default.KeyboardArrowLeft, "Prev", tint = Color.White.copy(alpha = 0.15f), modifier = Modifier.size(36.dp))
-                    Icon(Icons.Default.KeyboardArrowRight, "Next", tint = Color.White.copy(alpha = 0.15f), modifier = Modifier.size(36.dp))
-                }
-            }
-        }
-    }
-}

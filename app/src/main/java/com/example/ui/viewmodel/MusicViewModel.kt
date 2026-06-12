@@ -51,6 +51,41 @@ class MusicViewModel(
     private val _isOnboardingActive = MutableStateFlow(false)
     val isOnboardingActive: StateFlow<Boolean> = _isOnboardingActive.asStateFlow()
 
+    // Sleep Timer status flows
+    private val _sleepTimerRemaining = MutableStateFlow<Long?>(null)
+    val sleepTimerRemaining: StateFlow<Long?> = _sleepTimerRemaining.asStateFlow()
+
+    private var sleepTimerJob: kotlinx.coroutines.Job? = null
+
+    fun startSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        if (minutes <= 0) {
+            _sleepTimerRemaining.value = null
+            return
+        }
+        val targetMs = minutes * 60 * 1000L
+        _sleepTimerRemaining.value = targetMs
+        
+        sleepTimerJob = viewModelScope.launch(Dispatchers.Default) {
+            var timeRemaining = targetMs
+            while (timeRemaining > 0) {
+                delay(1000)
+                timeRemaining -= 1000
+                _sleepTimerRemaining.value = timeRemaining
+            }
+            _sleepTimerRemaining.value = null
+            viewModelScope.launch {
+                audioPlayer.pause()
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimerRemaining.value = null
+    }
+
     // 1. Static high-fidelity track library with synchronized lyrics
     private val _rawTracks = MutableStateFlow<List<Track>>(emptyList())
 
@@ -124,6 +159,7 @@ class MusicViewModel(
     init {
         loadStaticTracks()
         checkOnboardingStatus()
+        scanDeviceStorage()
     }
 
     private fun checkOnboardingStatus() {
