@@ -143,6 +143,12 @@ class AudioPlayer(private val context: Context, private val onTrackCompleted: ()
         }
     }
 
+    fun updateCurrentTrackDetails(track: Track) {
+        if (_currentTrack.value?.id == track.id) {
+            _currentTrack.value = track
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         mediaPlayer?.let { player ->
             try {

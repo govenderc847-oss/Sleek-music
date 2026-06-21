@@ -112,6 +112,7 @@ fun MainScreen(
     val userPlaylists by viewModel.userPlaylists.collectAsStateWithLifecycle()
     val equalizerSettings by viewModel.equalizerSettings.collectAsStateWithLifecycle()
     val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsStateWithLifecycle()
+    val tagUpdateStatus by viewModel.tagUpdateStatus.collectAsStateWithLifecycle()
 
     val currentViewedPlaylist by viewModel.currentViewedPlaylist.collectAsStateWithLifecycle()
     val playlistDetailTracks by viewModel.playlistTracks.collectAsStateWithLifecycle()
@@ -568,7 +569,12 @@ fun MainScreen(
                     onAddToPlaylist = { showAddToPlaylistSheet = true },
                     onTweakBass = { viewModel.updateBassBoost(it) },
                     onTweakSpatial = { viewModel.updateSpatialAudio(it) },
-                    onTweakClarify = { viewModel.updateVocalClarity(it) }
+                    onTweakClarify = { viewModel.updateVocalClarity(it) },
+                    tagUpdateStatus = tagUpdateStatus,
+                    onSaveTags = { trackId, lyricsText, imageUri ->
+                        viewModel.updateTrackLyricsAndCover(context, trackId, lyricsText, imageUri)
+                    },
+                    onClearTagStatus = { viewModel.clearTagUpdateStatus() }
                 )
             }
         }
@@ -1082,7 +1088,10 @@ fun ExpandedPlayerView(
     onAddToPlaylist: () -> Unit,
     onTweakBass: (Float) -> Unit,
     onTweakSpatial: (Float) -> Unit,
-    onTweakClarify: (Float) -> Unit
+    onTweakClarify: (Float) -> Unit,
+    tagUpdateStatus: String?,
+    onSaveTags: (String, String, android.net.Uri?) -> Unit,
+    onClearTagStatus: () -> Unit
 ) {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
@@ -1297,6 +1306,15 @@ fun ExpandedPlayerView(
                         onTweakClarify = onTweakClarify
                     )
                 }
+                "Tag Studio" -> {
+                    com.example.ui.components.TagStudioPane(
+                        track = track,
+                        tagUpdateStatus = tagUpdateStatus,
+                        onSaveTags = { text, uri -> onSaveTags(track.id, text, uri) },
+                        onClearStatus = onClearTagStatus,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
 
@@ -1309,7 +1327,7 @@ fun ExpandedPlayerView(
                 .background(CardSurface)
                 .padding(4.dp)
         ) {
-            val panels = listOf("Artwork", "Lyrics", "Equalizer FX")
+            val panels = listOf("Artwork", "Lyrics", "Equalizer FX", "Tag Studio")
             panels.forEach { panel ->
                 val active = activePanel == panel
                 Box(

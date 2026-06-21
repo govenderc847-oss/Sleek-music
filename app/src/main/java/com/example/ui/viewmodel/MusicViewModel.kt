@@ -25,6 +25,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import androidx.documentfile.provider.DocumentFile
+import com.example.util.Id3TagEditor
+import java.io.ByteArrayOutputStream
 
 data class UiTrack(
     val track: Track,
@@ -58,6 +60,9 @@ class MusicViewModel(
 
     private val _isOnboardingActive = MutableStateFlow(false)
     val isOnboardingActive: StateFlow<Boolean> = _isOnboardingActive.asStateFlow()
+
+    private val _tagUpdateStatus = MutableStateFlow<String?>(null)
+    val tagUpdateStatus: StateFlow<String?> = _tagUpdateStatus.asStateFlow()
 
     // Sleep Timer status flows
     private val _sleepTimerRemaining = MutableStateFlow<Long?>(null)
@@ -440,6 +445,33 @@ class MusicViewModel(
         activeQueue = baseTracks
     }
 
+    fun parseLyricsTextToLines(lyricsText: String): List<LyricLine> {
+        val lines = lyricsText.split("\n", "\r")
+        val parsed = mutableListOf<LyricLine>()
+        var currentTime = 1000L
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+            val match = Regex("""^\[(\d+):(\d+)(?:\.(\d+))?\](.*)$""").find(line)
+            if (match != null) {
+                val mins = match.groups[1]?.value?.toLongOrNull() ?: 0L
+                val secs = match.groups[2]?.value?.toLongOrNull() ?: 0L
+                val msStr = match.groups[3]?.value ?: "0"
+                val ms = (if (msStr.length == 2) msStr.toLong() * 10 else msStr.toLong()).coerceIn(0, 999)
+                val totalMs = (mins * 60 + secs) * 1000 + ms
+                val text = match.groups[4]?.value?.trim() ?: ""
+                parsed.add(LyricLine(totalMs, text))
+            } else {
+                parsed.add(LyricLine(currentTime, line))
+                currentTime += 4000L
+            }
+        }
+        if (parsed.isEmpty()) {
+            return listOf(LyricLine(1000, lyricsText))
+        }
+        return parsed.sortedBy { it.timeMs }
+    }
+
     private fun queryMediaStoreTracks(context: Context): List<Track> {
         val scannedTracks = mutableListOf<Track>()
         val resolver = context.contentResolver
@@ -475,11 +507,28 @@ class MusicViewModel(
                     val dataPath = cursor.getString(dataCol) ?: ""
                     val albumId = cursor.getLong(albumIdCol)
 
-                    val contentUri = android.content.ContentUris.withAppendedId(uri, id).toString()
-                    val coverUriString = android.content.ContentUris.withAppendedId(
-                        android.net.Uri.parse("content://media/external/audio/albumart"),
-                        albumId
-                    ).toString()
+                    val contentUri = android.content.ContentUris.withAppendedId(uri, id)
+                    
+                    var fileLyrics: String? = null
+                    var hasEmbeddedCover = false
+                    try {
+                        val id3Data = Id3TagEditor.readTag(context, contentUri)
+                        fileLyrics = id3Data.lyrics
+                        hasEmbeddedCover = id3Data.coverBytes != null && id3Data.coverBytes.isNotEmpty()
+                    } catch (e: Exception) {
+                        Log.e("MusicViewModel", "Failed to parse metadata from ID3", e)
+                    }
+
+                    val lyricsList = if (!fileLyrics.isNullOrBlank()) {
+                        parseLyricsTextToLines(fileLyrics)
+                    } else {
+                        listOf(
+                            LyricLine(1000, "[Local file: $title]"),
+                            LyricLine(6000, "Artist: $artist"),
+                            LyricLine(12000, "Album: $album"),
+                            LyricLine(18000, "Path: $dataPath")
+                        )
+                    }
 
                     val mins = (durationMs / 1000) / 60
                     val secs = (durationMs / 1000) % 60
@@ -495,19 +544,14 @@ class MusicViewModel(
                             title = title,
                             artist = artist,
                             album = album,
-                            streamUrl = contentUri,
+                            streamUrl = contentUri.toString(),
                             durationMs = durationMs,
                             durationString = durationStr,
                             genre = "Local Storage",
                             colorStart = colorStart,
                             colorEnd = colorEnd,
-                            coverUri = coverUriString,
-                            lyrics = listOf(
-                                LyricLine(1000, "[Local file: $title]"),
-                                LyricLine(6000, "Artist: $artist"),
-                                LyricLine(12000, "Album: $album"),
-                                LyricLine(18000, "Path: $dataPath")
-                            )
+                            coverUri = if (hasEmbeddedCover) contentUri.toString() else null,
+                            lyrics = lyricsList
                         )
                     )
                 }
@@ -600,6 +644,27 @@ class MusicViewModel(
             val colorStart = 0xFF000000L or (hash.toLong() and 0x00FFFFFF)
             val colorEnd = 0xFF000000L or ((hash xor 0xABCDEF).toLong() and 0x00FFFFFF)
 
+            var fileLyrics: String? = null
+            var hasEmbeddedCover = false
+            try {
+                val id3Data = Id3TagEditor.readTag(context, file.uri)
+                fileLyrics = id3Data.lyrics
+                hasEmbeddedCover = id3Data.coverBytes != null && id3Data.coverBytes.isNotEmpty()
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Failed to parse ID3 tags from SAF", e)
+            }
+
+            val lyricsList = if (!fileLyrics.isNullOrBlank()) {
+                parseLyricsTextToLines(fileLyrics)
+            } else {
+                listOf(
+                    LyricLine(1000, "[Local file: $title]"),
+                    LyricLine(6000, "Artist: $artist"),
+                    LyricLine(12000, "Album: $album"),
+                    LyricLine(18000, "Path: ${file.name}")
+                )
+            }
+
             val trackId = "saf_${System.currentTimeMillis()}_${hash}"
             return Track(
                 id = trackId,
@@ -612,7 +677,8 @@ class MusicViewModel(
                 genre = "Local Storage",
                 colorStart = colorStart,
                 colorEnd = colorEnd,
-                coverUri = file.uri.toString()
+                coverUri = if (hasEmbeddedCover) file.uri.toString() else null,
+                lyrics = lyricsList
             )
         } catch (e: Exception) {
             Log.e("MusicViewModel", "Error parsing metadata for DocumentFile ${file.name}", e)
@@ -684,6 +750,93 @@ class MusicViewModel(
     override fun onCleared() {
         super.onCleared()
         audioPlayer.release()
+    }
+
+    fun updateTrackLyricsAndCover(
+        context: Context,
+        trackId: String,
+        newLyricsText: String?,
+        newCoverImageUri: Uri?
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _tagUpdateStatus.value = "Saving updated MP3 tags..."
+                
+                val currentList = _rawTracks.value
+                val matchedIndex = currentList.indexOfFirst { it.id == trackId }
+                if (matchedIndex == -1) {
+                    _tagUpdateStatus.value = "Track not found in current library"
+                    return@launch
+                }
+                
+                val track = currentList[matchedIndex]
+                val streamUri = Uri.parse(track.streamUrl)
+
+                var coverBytes: ByteArray? = null
+                var mimeType: String? = null
+                if (newCoverImageUri != null) {
+                    _tagUpdateStatus.value = "Processing image..."
+                    context.contentResolver.openInputStream(newCoverImageUri)?.use { inputStream ->
+                        val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                        if (bitmap != null) {
+                            val stream = ByteArrayOutputStream()
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
+                            coverBytes = stream.toByteArray()
+                            mimeType = "image/jpeg"
+                        }
+                    }
+                }
+
+                _tagUpdateStatus.value = "Writing back to physical MP3 file..."
+                val success = Id3TagEditor.saveTag(context, streamUri, newLyricsText, coverBytes, mimeType)
+                if (success) {
+                    val updatedLyrics = if (newLyricsText != null) {
+                        parseLyricsTextToLines(newLyricsText)
+                    } else {
+                        track.lyrics
+                    }
+
+                    val updatedCoverUri = if (coverBytes != null) {
+                        "${track.streamUrl}#cover_updated_${System.currentTimeMillis()}"
+                    } else {
+                        track.coverUri
+                    }
+
+                    val updatedTrack = track.copy(
+                        lyrics = updatedLyrics,
+                        coverUri = updatedCoverUri
+                    )
+
+                    val newList = currentList.toMutableList()
+                    newList[matchedIndex] = updatedTrack
+                    
+                    withContext(Dispatchers.Main) {
+                        _rawTracks.value = newList
+                        if (audioPlayer.currentTrack.value?.id == trackId) {
+                            audioPlayer.updateCurrentTrackDetails(updatedTrack)
+                        }
+                        
+                        val activeQ = activeQueue.toMutableList()
+                        val qIndex = activeQ.indexOfFirst { it.id == trackId }
+                        if (qIndex != -1) {
+                            activeQ[qIndex] = updatedTrack
+                            activeQueue = activeQ
+                        }
+
+                        _tagUpdateStatus.value = "Saved successfully!"
+                    }
+                } else {
+                    _tagUpdateStatus.value = "Failed to update tags. Verify directory permissions."
+                }
+            } catch (e: Exception) {
+                Log.e("MusicViewModel", "Error updating track tags", e)
+                _tagUpdateStatus.value = "Error: ${e.message}"
+            }
+        }
+    }
+    
+    fun clearTagUpdateStatus() {
+        _tagUpdateStatus.value = null
     }
 }
 

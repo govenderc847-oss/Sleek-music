@@ -1,5 +1,13 @@
 package com.example.ui.components
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.theme.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -117,6 +125,42 @@ fun TrackArtworkPattern(
             )
             return
         }
+    }
+
+    if (isImageLoadFailed || track.coverUri == null) {
+        val startColor = Color(track.colorStart)
+        val endColor = Color(track.colorEnd)
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            startColor.copy(alpha = 0.85f),
+                            endColor.copy(alpha = 0.85f)
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.05f),
+                    radius = size.minDimension / 2.2f
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.03f),
+                    radius = size.minDimension / 1.5f
+                )
+            }
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.MusicNote,
+                contentDescription = "Music Track fallback icon",
+                tint = Color.White,
+                modifier = Modifier.size(86.dp)
+            )
+        }
+        return
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "artwork_rotation")
@@ -306,6 +350,252 @@ fun LyricsPane(
                         }
                     }
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TagStudioPane(
+    track: Track,
+    tagUpdateStatus: String?,
+    onSaveTags: (lyricsText: String, imageUri: android.net.Uri?) -> Unit,
+    onClearStatus: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var rawLyrics by remember(track.id) {
+        val initialText = if (track.lyrics.any { it.text.contains("[Local file:") }) {
+            ""
+        } else {
+            track.lyrics.joinToString("\n") { it.text }
+        }
+        mutableStateOf(initialText)
+    }
+
+    var pickedImageUri by remember(track.id) { mutableStateOf<android.net.Uri?>(null) }
+    
+    val launcher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            pickedImageUri = uri
+        }
+    }
+
+    val accentColor = Color(track.colorStart)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "ID3 TAG STUDIO",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = accentColor,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            )
+
+            // 1. Artwork selector section
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp))
+                            .clickable { launcher.launch("image/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val activeImageModel = pickedImageUri ?: track.coverUri
+                        if (activeImageModel != null) {
+                            androidx.compose.foundation.Image(
+                                painter = coil.compose.rememberAsyncImagePainter(model = activeImageModel),
+                                contentDescription = "Cover Image Preview",
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = "Edit photo",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = "Default Music Icon",
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Text(
+                                    text = "NO COVER",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Embed Custom Album Art",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (pickedImageUri != null) "New art prepared to save" else "MP3 file uses default artwork",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (pickedImageUri != null) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { launcher.launch("image/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.heightIn(max = 32.dp)
+                        ) {
+                            Text(
+                                "Choose Photo",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Lyrics Text Field section
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Song Lyrics Editor",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                OutlinedTextField(
+                    value = rawLyrics,
+                    onValueChange = { rawLyrics = it },
+                    placeholder = {
+                        Text(
+                            "Type or paste song lyrics here...\nSupports synchronized tags like:\n[00:15] Verse 1 lyrics\n[00:32] Chorus lyrics",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = accentColor,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    ),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            // 3. Save Trigger Button
+            Button(
+                onClick = { onSaveTags(rawLyrics, pickedImageUri) },
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Save,
+                        contentDescription = "Save metadata",
+                        tint = Color.White
+                    )
+                    Text(
+                        text = "SAVE & BURN TO MP3",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+
+        // 4. Overlays / Notification banners for state changes
+        if (tagUpdateStatus != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+                    .fillMaxWidth(0.95f),
+                color = MaterialTheme.colorScheme.inverseSurface,
+                shadowElevation = 8.dp,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = tagUpdateStatus,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (tagUpdateStatus.contains("success") || tagUpdateStatus.contains("Error") || tagUpdateStatus.contains("Failed")) {
+                        TextButton(
+                            onClick = onClearStatus,
+                            colors = ButtonDefaults.textButtonColors(contentColor = accentColor)
+                        ) {
+                            Text("DISMISS")
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        CircularProgressIndicator(
+                            color = accentColor,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                }
+            }
         }
     }
 }
